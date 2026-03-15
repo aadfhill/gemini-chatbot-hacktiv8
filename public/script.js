@@ -3,47 +3,65 @@ document.addEventListener('DOMContentLoaded', () => {
   const userInput = document.getElementById('user-input');
   const chatBox = document.getElementById('chat-box');
 
+  // Set options for Marked.js to ensure it renders HTML safely
+  // and adds breaks for newlines.
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+  });
+
   /**
-   * Appends a message to the chat box and scrolls to the latest message.
-   * @param {string} text - The content of the message.
-   * @param {string} sender - The sender of the message, 'user' or 'bot'.
-   * @returns {HTMLElement} The newly created message element.
+   * Appends a message to the chat box.
+   * @param {string} content - The message content (can be text or HTML).
+   * @param {string} sender - The sender ('user' or 'bot').
+   * @param {boolean} isHtml - Flag to treat content as HTML.
+   * @returns {HTMLElement} The created message element.
    */
-  const addMessage = (text, sender) => {
+  const addMessage = (content, sender, isHtml = false) => {
     const messageElement = document.createElement('div');
-    // Sanitize text by setting textContent to prevent XSS
-    messageElement.textContent = text;
     messageElement.className = `message ${sender}-message`;
+
+    if (isHtml) {
+      // Use the 'marked' library to parse markdown and sanitize it
+      messageElement.innerHTML = marked.parse(content);
+    } else {
+      // For user messages, just set textContent to prevent XSS
+      messageElement.textContent = content;
+    }
+
     chatBox.appendChild(messageElement);
-    // Ensure the chat box scrolls to the bottom
     chatBox.scrollTop = chatBox.scrollHeight;
     return messageElement;
   };
 
   /**
    * Handles the chat form submission.
-   * - Displays the user's message.
-   * - Shows a "Thinking..." placeholder.
-   * - Sends the message to the backend API.
-   * - Replaces the placeholder with the AI's response or an error message.
    */
   chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const userText = userInput.value.trim();
 
     if (userText === '') {
-      return; // Do not send empty messages
+      return;
     }
 
-    // 1. Add the user's message to the chat box
+    // 1. Add user's message (as plain text)
     addMessage(userText, 'user');
-    userInput.value = ''; // Clear the input field immediately
+    userInput.value = '';
 
-    // 2. Show a temporary "Thinking..." bot message
-    const thinkingMessage = addMessage('Thinking...', 'bot');
+    // 2. Show a temporary loading animation
+    const loadingHtml = `
+      <div class="loading-spinner">
+        <span class="bounce1"></span>
+        <span class="bounce2"></span>
+        <span class="bounce3"></span>
+      </div>
+    `;
+    const thinkingMessage = addMessage(loadingHtml, 'bot', true);
+    thinkingMessage.style.backgroundColor = 'transparent'; // Make loader background invisible
 
     try {
-      // 3. Send the user's message to the backend API
+      // 3. Send message to the backend
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -59,16 +77,19 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const data = await response.json();
+      
+      // 4. Replace loader with AI's reply or an error message
+      thinkingMessage.style.backgroundColor = ''; // Restore default background
 
-      // 4. Replace "Thinking..." with the AI's reply or a fallback message
       if (data && data.result) {
-        thinkingMessage.textContent = data.result;
+        // Render the markdown response as HTML
+        thinkingMessage.innerHTML = marked.parse(data.result);
       } else {
         thinkingMessage.textContent = 'Sorry, no response received.';
       }
     } catch (error) {
       console.error('Failed to get response from server:', error);
-      // 5. Show an error message if the fetch fails
+      thinkingMessage.style.backgroundColor = ''; // Restore default background
       thinkingMessage.textContent = 'Failed to get response from server.';
     }
   });
